@@ -217,7 +217,7 @@ InferenceServer::Stop()
   uint32_t exit_timeout_iters = exit_timeout_secs_;
 
   while (true) {
-    const auto& live_models = model_repository_manager_->GetLiveBackendStates();
+    const auto& live_models = model_repository_manager_->LiveBackendStates();
 
     LOG_INFO << "Timeout " << exit_timeout_iters << ": Found "
              << live_models.size() << " live models and "
@@ -226,7 +226,7 @@ InferenceServer::Stop()
       for (const auto& m : live_models) {
         for (const auto& v : m.second) {
           LOG_VERBOSE(1) << m.first << " v" << v.first << ": "
-                         << v.second.first;
+                         << ModelReadyStateString(v.second.first);
         }
       }
     }
@@ -297,7 +297,7 @@ InferenceServer::IsReady(bool* ready)
   if (*ready && strict_readiness_) {
     // Strict readiness... get the model status and make sure all
     // models are ready.
-    const auto model_versions = model_repository_manager_->GetBackendStates();
+    const auto model_versions = model_repository_manager_->BackendStates();
 
     for (const auto& mv : model_versions) {
       // If a model status is present but no version status,
@@ -337,7 +337,7 @@ InferenceServer::ModelIsReady(
   if (GetInferenceBackend(model_name, model_version, &backend).IsOk()) {
     ModelReadyState state;
     if (model_repository_manager_
-            ->GetModelState(model_name, backend->Version(), &state)
+            ->ModelState(model_name, backend->Version(), &state)
             .IsOk()) {
       *ready = (state == ModelReadyState::MODEL_READY);
     }
@@ -357,7 +357,7 @@ InferenceServer::ModelReadyVersions(
   ScopedAtomicIncrement inflight(inflight_request_counter_);
 
   const ModelRepositoryManager::VersionStateMap version_states =
-      model_repository_manager_->GetVersionStates(model_name);
+      model_repository_manager_->VersionStates(model_name);
   for (const auto& pr : version_states) {
     if (pr.second.first == ModelReadyState::MODEL_READY) {
       versions->push_back(pr.first);
@@ -377,8 +377,8 @@ InferenceServer::ModelReadyVersions(
 
   ScopedAtomicIncrement inflight(inflight_request_counter_);
 
-  const auto model_versions = model_repository_manager_->GetLiveBackendStates(
-      true /* strict_readiness */);
+  const auto model_versions =
+      model_repository_manager_->LiveBackendStates(true /* strict_readiness */);
 
   ready_model_versions->clear();
   std::vector<int64_t> versions;
@@ -392,6 +392,18 @@ InferenceServer::ModelReadyVersions(
   return Status::Success;
 }
 
+Status
+InferenceServer::RepositoryModels(
+    std::map<std::string, std::pair<std::string, std::string>>* models)
+{
+  if (ready_state_ != ServerReadyState::SERVER_READY) {
+    return Status(Status::Code::UNAVAILABLE, "Server not ready");
+  }
+
+  ScopedAtomicIncrement inflight(inflight_request_counter_);
+
+  return model_repository_manager_->RepositoryModels(models);
+}
 
 Status
 InferenceServer::InferAsync(std::unique_ptr<InferenceRequest>& request)
@@ -411,18 +423,6 @@ InferenceServer::InferAsync(std::unique_ptr<InferenceRequest>& request)
 #endif  // TRITON_ENABLE_STATS
 
   return InferenceRequest::Run(request);
-}
-
-Status
-InferenceServer::GetModelRepositoryIndex(ModelRepositoryIndex* repository_index)
-{
-  if (ready_state_ != ServerReadyState::SERVER_READY) {
-    return Status(Status::Code::UNAVAILABLE, "Server not ready");
-  }
-
-  ScopedAtomicIncrement inflight(inflight_request_counter_);
-
-  return model_repository_manager_->GetModelRepositoryIndex(repository_index);
 }
 
 Status

@@ -39,6 +39,35 @@ namespace nvidia { namespace inferenceserver {
 class InferenceServer;
 class InferenceBackend;
 
+/// Predefined reason strings
+#define MODEL_READY_REASON_DUPLICATE "model appears in two or more repositories"
+
+/// Readiness status for models.
+enum class ModelReadyState {
+  // The model is in an unknown state. The model is not available for
+  // inferencing.
+  MODEL_UNKNOWN,
+
+  // The model is ready and available for inferencing.
+  MODEL_READY,
+
+  // The model is unavailable, indicating that the model failed to
+  // load or has been implicitly or explicitly unloaded. The model is
+  // not available for inferencing.
+  MODEL_UNAVAILABLE,
+
+  // The model is being loaded by the inference server. The model is
+  // not available for inferencing.
+  MODEL_LOADING,
+
+  // The model is being unloaded by the inference server. The model is
+  // not available for inferencing.
+  MODEL_UNLOADING
+};
+
+/// Get the string representation for a ModelReadyState
+const std::string& ModelReadyStateString(ModelReadyState state);
+
 /// An object to manage the model repository active in the server.
 class ModelRepositoryManager {
  public:
@@ -122,19 +151,27 @@ class ModelRepositoryManager {
   /// \param strict_readiness If true, only models that have at least one
   /// ready version will be considered as live. Otherwise, the models that
   /// have loading / unloading versions will also be live.
-  /// \return the states of all versions of all live model backends.
-  const ModelStateMap GetLiveBackendStates(bool strict_readiness = false);
+  /// \return the state of all versions of all live models.
+  const ModelStateMap LiveBackendStates(bool strict_readiness = false);
 
-  /// \return the states of all versions of all model backends served.
-  const ModelStateMap GetBackendStates();
+  /// \return the state of all versions of all models that have every
+  /// been (attempted) loaded over the lifetime of the server.
+  const ModelStateMap BackendStates();
 
   /// \return the states of all versions of a specific model.
-  const VersionStateMap GetVersionStates(const std::string& model_name);
+  const VersionStateMap VersionStates(const std::string& model_name);
 
   /// \return the ready-state of a specific model version.
-  Status GetModelState(
+  Status ModelState(
       const std::string& model_name, const int64_t model_version,
       ModelReadyState* state);
+
+  /// Get the name and state of all models in all repositories that
+  /// are potentially capable of being loaded.
+  /// \param models Returns map from model name to a <state, reason> pair.
+  /// \return error status.
+  Status RepositoryModels(
+      std::map<std::string, std::pair<std::string, std::string>>* models);
 
   /// Obtain the specified backend.
   /// \param model_name The model name of the backend handle.
@@ -144,8 +181,6 @@ class ModelRepositoryManager {
   Status GetInferenceBackend(
       const std::string& model_name, const int64_t model_version,
       std::shared_ptr<InferenceBackend>* backend);
-
-  Status GetModelRepositoryIndex(ModelRepositoryIndex* repository_index);
 
  private:
   struct ModelInfo;

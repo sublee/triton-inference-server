@@ -1790,24 +1790,42 @@ TRITONSERVER_ServerModelConfig(
 
 TRITONSERVER_Error*
 TRITONSERVER_ServerModelIndex(
-    TRITONSERVER_Server* server, TRITONSERVER_Message** repository_index)
+    TRITONSERVER_Server* server, uint32_t flags,
+    TRITONSERVER_Message** repository_index)
 {
   ni::InferenceServer* lserver = reinterpret_cast<ni::InferenceServer*>(server);
 
-  ni::ModelRepositoryIndex model_repository_index;
-  RETURN_IF_STATUS_ERROR(
-      lserver->GetModelRepositoryIndex(&model_repository_index));
+//  const bool loaded_only = ((flags & TRITONSERVER_INDEX_FLAG_LOADED) != 0);
+
+  std::map<std::string, std::pair<std::string, std::string>> models;
+  RETURN_IF_STATUS_ERROR(lserver->RepositoryModels(&models));
 
   rapidjson::Document repository_index_json(rapidjson::kArrayType);
-  for (const auto& model : model_repository_index.models()) {
+  for (const auto& pr : models) {
+    const std::string& name = pr.first;
+    const std::string& state = pr.second.first;
+    const std::string& reason = pr.second.second;
+
     rapidjson::Value model_index;
     model_index.SetObject();
     model_index.AddMember(
-        "name", rapidjson::StringRef(model.name().c_str()),
+        "name", rapidjson::StringRef(name.c_str()),
         repository_index_json.GetAllocator());
+    if (!state.empty()) {
+      model_index.AddMember(
+          "state", rapidjson::StringRef(state.c_str()),
+          repository_index_json.GetAllocator());
+    }
+    if (!reason.empty()) {
+      model_index.AddMember(
+          "reason", rapidjson::StringRef(state.c_str()),
+          repository_index_json.GetAllocator());
+    }
+
     repository_index_json.PushBack(
         model_index, repository_index_json.GetAllocator());
   }
+
   *repository_index = reinterpret_cast<TRITONSERVER_Message*>(
       new TritonServerMessage(repository_index_json));
 
